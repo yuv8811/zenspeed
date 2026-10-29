@@ -11,22 +11,42 @@
     deferScripts: false
   };
 
-  // 1. Instant Page Preloader (Predictive Link Prefetching)
-  if (config.preloader && ('fetch' in window || 'IntersectionObserver' in window)) {
-    var prefetchedUrls = new Set();
+  var prefetchedUrls = new Set();
 
-    function prefetchUrl(url) {
-      if (!url || prefetchedUrls.has(url)) return;
-      if (url.indexOf('/cart') !== -1 || url.indexOf('/checkout') !== -1 || url.indexOf('/account') !== -1) return;
+  function prefetchUrl(url) {
+    if (!url || prefetchedUrls.has(url)) return;
+    if (url.indexOf('/cart') !== -1 || url.indexOf('/checkout') !== -1 || url.indexOf('/account') !== -1) return;
 
-      prefetchedUrls.add(url);
-      var link = document.createElement('link');
-      link.rel = 'prefetch';
-      link.href = url;
-      link.as = 'document';
-      document.head.appendChild(link);
+    prefetchedUrls.add(url);
+    var link = document.createElement('link');
+    link.rel = 'prefetch';
+    link.href = url;
+    link.as = 'document';
+    document.head.appendChild(link);
+  }
+
+  function applyLazyLoading() {
+    var imgs = document.querySelectorAll('img:not([loading])');
+    var iframes = document.querySelectorAll('iframe:not([loading])');
+
+    for (var i = 0; i < imgs.length; i++) {
+      var rect = imgs[i].getBoundingClientRect();
+      // Only apply lazy loading to elements below the fold (> window.innerHeight)
+      if (rect.top > (window.innerHeight || document.documentElement.clientHeight)) {
+        imgs[i].setAttribute('loading', 'lazy');
+      }
     }
 
+    for (var j = 0; j < iframes.length; j++) {
+      var ifRect = iframes[j].getBoundingClientRect();
+      if (ifRect.top > (window.innerHeight || document.documentElement.clientHeight)) {
+        iframes[j].setAttribute('loading', 'lazy');
+      }
+    }
+  }
+
+  // 1. Instant Page Preloader (Predictive Link Prefetching)
+  if (config.preloader && ('fetch' in window || 'IntersectionObserver' in window)) {
     document.addEventListener('mouseover', function(e) {
       var a = e.target.closest('a');
       if (!a || !a.href || a.origin !== window.location.origin) return;
@@ -42,26 +62,6 @@
 
   // 2. Automated Native Lazy Loading for Off-screen Images & iFrames
   if (config.lazyLoading) {
-    function applyLazyLoading() {
-      var imgs = document.querySelectorAll('img:not([loading])');
-      var iframes = document.querySelectorAll('iframe:not([loading])');
-
-      for (var i = 0; i < imgs.length; i++) {
-        var rect = imgs[i].getBoundingClientRect();
-        // Only apply lazy loading to elements below the fold (> window.innerHeight)
-        if (rect.top > (window.innerHeight || document.documentElement.clientHeight)) {
-          imgs[i].setAttribute('loading', 'lazy');
-        }
-      }
-
-      for (var j = 0; j < iframes.length; j++) {
-        var ifRect = iframes[j].getBoundingClientRect();
-        if (ifRect.top > (window.innerHeight || document.documentElement.clientHeight)) {
-          iframes[j].setAttribute('loading', 'lazy');
-        }
-      }
-    }
-
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', applyLazyLoading);
     } else {

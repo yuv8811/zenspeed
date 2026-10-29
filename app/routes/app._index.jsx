@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   Play,
+  TrendingUp,
 } from "lucide-react";
 import { authenticate } from "../shopify.server";
 import { runPageSpeedAudit } from "../services/pagespeed.server";
@@ -34,6 +35,7 @@ export const loader = async ({ request }) => {
     latestPerf: null,
     latestSeo: null,
   };
+  let comparison = null;
 
   try {
     await connectDB();
@@ -47,6 +49,31 @@ export const loader = async ({ request }) => {
     if (recentAudits.length > 0) {
       stats.latestPerf = recentAudits[0].scores?.performance ?? null;
       stats.latestSeo = recentAudits[0].scores?.seo ?? null;
+
+      // Before & After comparison (earliest baseline vs latest audit)
+      if (stats.totalAudits >= 2) {
+        const earliest = await Audit.findOne({ shop }).sort({ createdAt: 1 }).lean();
+        const latest = recentAudits[0];
+
+        if (earliest && latest && earliest._id.toString() !== latest._id.toString()) {
+          const perfDelta =
+            (latest.scores?.performance ?? 0) - (earliest.scores?.performance ?? 0);
+          const seoDelta =
+            (latest.scores?.seo ?? 0) - (earliest.scores?.seo ?? 0);
+
+          comparison = {
+            baselineDate: new Date(earliest.createdAt).toLocaleDateString(),
+            latestDate: new Date(latest.createdAt).toLocaleDateString(),
+            baselinePerf: earliest.scores?.performance ?? 0,
+            latestPerf: latest.scores?.performance ?? 0,
+            perfDelta,
+            baselineSeo: earliest.scores?.seo ?? 0,
+            latestSeo: latest.scores?.seo ?? 0,
+            seoDelta,
+            url: latest.url,
+          };
+        }
+      }
     }
   } catch (e) {
     console.warn("Could not load audit data from MongoDB:", e.message);
@@ -58,6 +85,7 @@ export const loader = async ({ request }) => {
     hasApiKey,
     recentAudits,
     stats,
+    comparison,
   };
 };
 
@@ -100,7 +128,7 @@ export const action = async ({ request }) => {
 };
 
 export default function Index() {
-  const { defaultUrl, hasApiKey, recentAudits, stats } = useLoaderData();
+  const { defaultUrl, hasApiKey, recentAudits, stats, comparison } = useLoaderData();
   const fetcher = useFetcher();
   const shopify = useAppBridge();
 
@@ -145,11 +173,12 @@ export default function Index() {
     <s-page heading="ZenSpeed: Performance & SEO Hub">
       <s-button
         slot="primary-action"
+        variant="primary"
         onClick={() => handleRunAudit(defaultUrl, strategy)}
-        {...(isLoading ? { loading: true } : {})}
+        disabled={isLoading}
       >
         <Play size={14} style={{ marginRight: "4px" }} />
-        Quick Audit
+        {isLoading ? "Auditing Store..." : "Quick Audit"}
       </s-button>
 
       {/* Configuration Alert if API key is not detected */}
@@ -204,13 +233,66 @@ export default function Index() {
           />
           <StatBox
             label="Optimizer Status"
-            value="Healthy"
-            subtext="Google PageSpeed v5"
+            value="Active"
+            subtext="Theme App Extension ready"
             icon={Activity}
             tone="success"
           />
         </s-grid>
       </s-section>
+
+      {/* Before vs. After Optimization Impact (PRD Section 6 MVP) */}
+      {comparison && (
+        <s-section heading="Optimization Impact: Before vs. After">
+          <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
+            <s-stack direction="block" gap="base">
+              <s-stack direction="inline" justifycontent="space-between" alignitems="center">
+                <s-stack direction="inline" gap="small-100" alignitems="center">
+                  <TrendingUp size={20} color="#008060" />
+                  <s-heading>Storefront Performance Gain</s-heading>
+                </s-stack>
+                <s-text tone="subdued">
+                  Comparing baseline ({comparison.baselineDate}) to latest ({comparison.latestDate})
+                </s-text>
+              </s-stack>
+
+              <s-grid gridtemplatecolumns="repeat(auto-fit, minmax(200px, 1fr))" gap="base">
+                <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
+                  <s-stack direction="block" gap="none">
+                    <s-text tone="subdued">PageSpeed Score Delta</s-text>
+                    <s-heading>
+                      {comparison.perfDelta >= 0 ? `+${comparison.perfDelta}` : comparison.perfDelta} pts
+                    </s-heading>
+                    <s-badge tone={comparison.perfDelta >= 0 ? "success" : "critical"}>
+                      {comparison.baselinePerf} &rarr; {comparison.latestPerf}
+                    </s-badge>
+                  </s-stack>
+                </s-box>
+
+                <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
+                  <s-stack direction="block" gap="none">
+                    <s-text tone="subdued">SEO Score Delta</s-text>
+                    <s-heading>
+                      {comparison.seoDelta >= 0 ? `+${comparison.seoDelta}` : comparison.seoDelta} pts
+                    </s-heading>
+                    <s-badge tone={comparison.seoDelta >= 0 ? "success" : "critical"}>
+                      {comparison.baselineSeo} &rarr; {comparison.latestSeo}
+                    </s-badge>
+                  </s-stack>
+                </s-box>
+
+                <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
+                  <s-stack direction="block" gap="none">
+                    <s-text tone="subdued">Audited URL</s-text>
+                    <s-heading>{comparison.url}</s-heading>
+                    <s-badge tone="info">Live Monitored</s-badge>
+                  </s-stack>
+                </s-box>
+              </s-grid>
+            </s-stack>
+          </s-box>
+        </s-section>
+      )}
 
       {/* Audit Input Form Section */}
       <s-section heading="Run Live Storefront Audit">
@@ -242,21 +324,20 @@ export default function Index() {
                 </s-button>
               </s-stack>
 
-              <s-stack direction="inline" justifycontent="space-between" >
-                <s-stack alignitems="flex-end" gap="base">
-                  <s-box inlinesize="240px">
-                    <s-select
-                      label="Device Simulation"
-                      value={strategy}
-                      onInput={(e) => setStrategy(e.target.value)}
-                    >
-                      <s-option value="mobile">Mobile (Google Standard)</s-option>
-                      <s-option value="desktop">Desktop</s-option>
-                    </s-select>
-                  </s-box>
+              <s-stack direction="inline" justifycontent="space-between" alignitems="flex-end" gap="base">
+                <s-box inlinesize="240px">
+                  <s-select
+                    label="Device Simulation"
+                    value={strategy}
+                    onInput={(e) => setStrategy(e.target.value)}
+                  >
+                    <s-option value="mobile">Mobile (Google Standard)</s-option>
+                    <s-option value="desktop">Desktop</s-option>
+                  </s-select>
+                </s-box>
 
-                </s-stack>
                 <s-button
+                  variant="primary"
                   onClick={() => handleRunAudit()}
                   disabled={isLoading}
                 >
@@ -387,7 +468,7 @@ export default function Index() {
                     padding="base"
                     borderWidth="base"
                     borderRadius="base"
-                    background={audit.passed ? "subdued" : "subdued"}
+                    background="subdued"
                   >
                     <s-stack direction="inline" gap="small-100" alignitems="center">
                       {audit.passed ? (

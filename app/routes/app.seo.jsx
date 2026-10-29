@@ -5,10 +5,17 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import {
   Globe,
   Copy,
+  Sparkles,
+  Search,
+  FileText,
+  AlertTriangle,
+  CheckCircle2,
 } from "lucide-react";
 import { authenticate } from "../shopify.server";
 import { connectDB } from "../db.server";
 import Settings from "../models/settings.model";
+import { getStoreSeoOverview, bulkApplySeoMeta } from "../services/seo.server";
+import StatBox from "../components/StatBox";
 
 export const loader = async ({ request }) => {
   const { session, admin } = await authenticate.admin(request);
@@ -22,7 +29,7 @@ export const loader = async ({ request }) => {
     console.warn("Could not load settings:", e.message);
   }
 
-  // Fetch shop details for preview
+  // Fetch shop details for preview & SEO overview
   const response = await admin.graphql(
     `#graphql
     query getShopDetails {
@@ -38,9 +45,17 @@ export const loader = async ({ request }) => {
   const json = await response.json();
   const shopData = json.data?.shop || {};
 
+  const seoOverview = await getStoreSeoOverview(admin, { maxProducts: 50 });
+
   return {
     shopName: shopData.name || "My Store",
     storeUrl: shopData.primaryDomain?.url || `https://${shop}`,
+    seoOverview: {
+      totalProducts: seoOverview.totalProducts,
+      missingSeoTitleCount: seoOverview.missingSeoTitleCount,
+      missingSeoDescCount: seoOverview.missingSeoDescCount,
+      duplicateTitleCount: seoOverview.duplicateTitleCount,
+    },
     settings: {
       jsonLdSchema: settings?.jsonLdSchema ?? true,
       metaTitleTemplate: settings?.metaTitleTemplate || "{title} | {shop_name}",
@@ -52,9 +67,10 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
   const shop = session.shop || "";
   const formData = await request.formData();
+  const intent = formData.get("intent");
 
   const metaTitleTemplate =
     formData.get("metaTitleTemplate")?.toString() || "{title} | {shop_name}";
@@ -62,25 +78,54 @@ export const action = async ({ request }) => {
     formData.get("metaDescriptionTemplate")?.toString() || "";
   const jsonLdSchema = formData.get("jsonLdSchema") === "true";
 
-  try {
-    await connectDB();
-    await Settings.findOneAndUpdate(
-      { shop },
-      {
-        metaTitleTemplate,
-        metaDescriptionTemplate,
-        jsonLdSchema,
-      },
-      { upsert: true, new: true },
-    );
-    return { ok: true, message: "SEO & Schema settings saved!" };
-  } catch (e) {
-    return { ok: false, error: e.message };
+  if (intent === "save_settings") {
+    try {
+      await connectDB();
+      await Settings.findOneAndUpdate(
+        { shop },
+        {
+          metaTitleTemplate,
+          metaDescriptionTemplate,
+          jsonLdSchema,
+        },
+        { upsert: true, new: true },
+      );
+      return { ok: true, message: "SEO & Schema settings saved successfully!" };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
   }
+
+  if (intent === "bulk_apply_meta") {
+    const shopName = formData.get("shopName")?.toString() || "Store";
+    try {
+      const result = await bulkApplySeoMeta({
+        admin,
+        shopName,
+        titleTemplate: metaTitleTemplate,
+        descriptionTemplate: metaDescriptionTemplate,
+        maxProducts: 50,
+      });
+
+      return {
+        ok: true,
+        message: `Updated SEO meta tags for ${result.updatedCount} products!`,
+      };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  }
+
+  return { ok: false, error: "Invalid intent" };
 };
 
 export default function SeoPage() {
-  const { shopName, storeUrl, settings: initialSettings } = useLoaderData();
+  const {
+    shopName,
+    storeUrl,
+    seoOverview,
+    settings: initialSettings,
+  } = useLoaderData();
   const fetcher = useFetcher();
   const shopify = useAppBridge();
 
@@ -98,15 +143,30 @@ export default function SeoPage() {
   useEffect(() => {
     if (fetcher.data?.message) {
       shopify.toast?.show(fetcher.data.message);
+    } else if (fetcher.data?.error) {
+      shopify.toast?.show(`Error: ${fetcher.data.error}`);
     }
   }, [fetcher.data, shopify]);
 
   const handleSave = () => {
     fetcher.submit(
       {
+        intent: "save_settings",
         metaTitleTemplate,
         metaDescriptionTemplate,
         jsonLdSchema: jsonLdSchema ? "true" : "false",
+      },
+      { method: "POST" },
+    );
+  };
+
+  const handleBulkApply = () => {
+    fetcher.submit(
+      {
+        intent: "bulk_apply_meta",
+        shopName,
+        metaTitleTemplate,
+        metaDescriptionTemplate,
       },
       { method: "POST" },
     );
@@ -146,8 +206,90 @@ export default function SeoPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const totalIssues =
+    seoOverview.missingSeoTitleCount +
+    seoOverview.missingSeoDescCount +
+    seoOverview.duplicateTitleCount;
+
   return (
     <s-page heading="SEO &amp; Structured Data (JSON-LD)">
+      {/* Primary Action Button */}
+      <s-button
+        slot="primary-action"
+        variant="primary"
+        onClick={handleSave}
+        disabled={isSubmitting}
+      >
+        {isSubmitting ? "Saving Changes..." : "Save SEO Settings"}
+      </s-button>
+
+      {/* SEO Health Overview Cards */}
+      <s-section>
+        <s-grid gridtemplatecolumns="repeat(auto-fit, minmax(200px, 1fr))" gap="base">
+          <StatBox
+            label="Scanned Catalog"
+            value={seoOverview.totalProducts}
+            subtext="Products analyzed"
+            icon={Search}
+            tone="neutral"
+          />
+          <StatBox
+            label="Missing Meta Titles"
+            value={seoOverview.missingSeoTitleCount}
+            subtext={
+              seoOverview.missingSeoTitleCount === 0
+                ? "All custom optimized"
+                : "Using fallback handle"
+            }
+            icon={FileText}
+            tone={seoOverview.missingSeoTitleCount === 0 ? "success" : "warning"}
+          />
+          <StatBox
+            label="Missing Meta Descriptions"
+            value={seoOverview.missingSeoDescCount}
+            subtext={
+              seoOverview.missingSeoDescCount === 0
+                ? "All descriptions present"
+                : "Needs Google snippet"
+            }
+            icon={AlertTriangle}
+            tone={seoOverview.missingSeoDescCount === 0 ? "success" : "warning"}
+          />
+          <StatBox
+            label="Structured Data"
+            value={jsonLdSchema ? "Active" : "Disabled"}
+            subtext="Product &amp; Organization JSON-LD"
+            icon={CheckCircle2}
+            tone={jsonLdSchema ? "success" : "neutral"}
+          />
+        </s-grid>
+      </s-section>
+
+      {/* Bulk Apply Notice if issues found */}
+      {totalIssues > 0 && (
+        <s-section heading="1-Click Automated SEO Fix">
+          <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
+            <s-stack direction="inline" justifycontent="space-between" alignitems="center">
+              <s-stack direction="block" gap="none">
+                <s-heading>Apply SEO Templates to Products Missing Custom Meta Tags</s-heading>
+                <s-text tone="subdued">
+                  Automatically populates optimized titles and descriptions for {seoOverview.missingSeoTitleCount} titles and {seoOverview.missingSeoDescCount} descriptions.
+                </s-text>
+              </s-stack>
+
+              <s-button
+                variant="primary"
+                onClick={handleBulkApply}
+                disabled={isSubmitting}
+              >
+                <Sparkles size={14} style={{ marginRight: "4px" }} />
+                {isSubmitting ? "Applying..." : "Bulk Generate Meta Tags"}
+              </s-button>
+            </s-stack>
+          </s-box>
+        </s-section>
+      )}
+
       {/* Search Engine Snippet Preview (SERP) */}
       <s-section heading="Google Search Result Preview">
         <s-paragraph>
@@ -210,12 +352,15 @@ export default function SeoPage() {
               onInput={(e) => setJsonLdSchema(e.target.checked)}
             />
 
-            <s-button
-              onClick={handleSave}
-              {...(isSubmitting ? { loading: true } : {})}
-            >
-              Save SEO Settings
-            </s-button>
+            <s-stack direction="inline" justifycontent="flex-end">
+              <s-button
+                variant="primary"
+                onClick={handleSave}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? "Saving..." : "Save SEO Settings"}
+              </s-button>
+            </s-stack>
           </s-stack>
         </s-box>
       </s-section>

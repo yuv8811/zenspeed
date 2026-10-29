@@ -6,7 +6,10 @@ import {
   FastForward,
   Cpu,
   Layers,
-  Copy,
+  ExternalLink,
+  ShieldCheck,
+  CheckCircle2,
+  Sparkles,
 } from "lucide-react";
 import { authenticate } from "../shopify.server";
 import { connectDB } from "../db.server";
@@ -24,11 +27,19 @@ export const loader = async ({ request }) => {
     console.warn("Could not load settings:", e.message);
   }
 
+  // Deep link to Shopify Theme Editor with App Embed context & ID
+  const extensionUid = "65b30aae-2fc0-9b48-3e28-e6bf3e801b92f9c75ad7";
+  const blockHandle = "zenspeed-booster";
+  const themeEditorUrl = `https://${shop}/admin/themes/current/editor?context=apps&activateAppId=${extensionUid}/${blockHandle}`;
+
   return {
+    shop,
+    themeEditorUrl,
     settings: {
       instantPreloader: settings?.instantPreloader ?? true,
       lazyLoadImages: settings?.lazyLoadImages ?? true,
       deferNonCriticalScripts: settings?.deferNonCriticalScripts ?? false,
+      jsonLdSchema: settings?.jsonLdSchema ?? true,
     },
   };
 };
@@ -42,6 +53,7 @@ export const action = async ({ request }) => {
   const lazyLoadImages = formData.get("lazyLoadImages") === "true";
   const deferNonCriticalScripts =
     formData.get("deferNonCriticalScripts") === "true";
+  const jsonLdSchema = formData.get("jsonLdSchema") === "true";
 
   try {
     await connectDB();
@@ -51,17 +63,18 @@ export const action = async ({ request }) => {
         instantPreloader,
         lazyLoadImages,
         deferNonCriticalScripts,
+        jsonLdSchema,
       },
       { upsert: true, new: true },
     );
-    return { ok: true, message: "Speed Booster settings saved!" };
+    return { ok: true, message: "Speed Booster settings saved successfully!" };
   } catch (e) {
     return { ok: false, error: e.message };
   }
 };
 
 export default function SpeedPage() {
-  const { settings: initialSettings } = useLoaderData();
+  const { shop, themeEditorUrl, settings: initialSettings } = useLoaderData();
   const fetcher = useFetcher();
   const shopify = useAppBridge();
 
@@ -74,7 +87,9 @@ export default function SpeedPage() {
   const [deferNonCriticalScripts, setDeferNonCriticalScripts] = useState(
     initialSettings.deferNonCriticalScripts,
   );
-  const [copied, setCopied] = useState(false);
+  const [jsonLdSchema, setJsonLdSchema] = useState(
+    initialSettings.jsonLdSchema,
+  );
 
   const isSubmitting = fetcher.state !== "idle";
 
@@ -90,52 +105,66 @@ export default function SpeedPage() {
         instantPreloader: instantPreloader ? "true" : "false",
         lazyLoadImages: lazyLoadImages ? "true" : "false",
         deferNonCriticalScripts: deferNonCriticalScripts ? "true" : "false",
+        jsonLdSchema: jsonLdSchema ? "true" : "false",
       },
       { method: "POST" },
     );
   };
 
-  const boosterScript = `<!-- ZenSpeed Instant Preloader & Core Web Vitals Optimization -->
-<script>
-(function() {
-  ${instantPreloader ? `// Instant Page Preload on Link Hover
-  var preloaded = new Set();
-  document.addEventListener('mouseover', function(e) {
-    var a = e.target.closest('a');
-    if (!a || !a.href || a.origin !== location.origin || preloaded.has(a.href)) return;
-    if (a.href.indexOf('/cart') !== -1 || a.href.indexOf('/checkout') !== -1) return;
-    var link = document.createElement('link');
-    link.rel = 'prefetch';
-    link.href = a.href;
-    document.head.appendChild(link);
-    preloaded.add(a.href);
-  }, { passive: true });` : ''}
-
-  ${lazyLoadImages ? `// Auto-Apply Native Lazy Loading & Layout Shift Guard
-  document.addEventListener('DOMContentLoaded', function() {
-    var imgs = document.querySelectorAll('img:not([loading])');
-    for (var i = 0; i < imgs.length; i++) {
-      if (imgs[i].getBoundingClientRect().top > window.innerHeight) {
-        imgs[i].setAttribute('loading', 'lazy');
-      }
-    }
-  });` : ''}
-})();
-</script>`;
-
-  const copyScript = () => {
-    navigator.clipboard?.writeText(boosterScript);
-    setCopied(true);
-    shopify.toast?.show("Booster script copied!");
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   return (
     <s-page heading="ZenSpeed: Store Speed Booster">
+      {/* Primary Action Button */}
+      <s-button
+        slot="primary-action"
+        variant="primary"
+        onClick={handleSave}
+        disabled={isSubmitting}
+      >
+        {isSubmitting ? "Saving Changes..." : "Save Booster Settings"}
+      </s-button>
+
+      {/* Theme App Extension Activation Banner */}
+      <s-section heading="Theme App Embed Status">
+        <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
+          <s-stack direction="block" gap="base">
+            <s-stack direction="inline" justifycontent="space-between" alignitems="center">
+              <s-stack direction="inline" gap="base" alignitems="center">
+                <ShieldCheck size={28} color="#008060" />
+                <s-stack direction="block" gap="none">
+                  <s-heading>ZenSpeed Booster Theme App Extension</s-heading>
+                  <s-text tone="subdued">
+                    Zero theme code modifications &bull; Lightweight (&lt; 2KB) &bull; Safe &amp; 100% reversible
+                  </s-text>
+                </s-stack>
+              </s-stack>
+
+              <s-badge tone="success">
+                <CheckCircle2 size={12} style={{ marginRight: "4px" }} />
+                App Embed Ready
+              </s-badge>
+            </s-stack>
+
+            <s-paragraph>
+              To accelerate your storefront, activate the ZenSpeed App Embed in your Shopify Theme Editor. This injects modern Core Web Vitals optimizations without modifying your theme files.
+            </s-paragraph>
+
+            <s-stack direction="inline" gap="base" alignitems="center">
+              <s-link href={themeEditorUrl} target="_blank">
+                <s-button variant="primary">
+                  <ExternalLink size={14} style={{ marginRight: "6px" }} />
+                  Open Theme Editor &amp; Activate Embed
+                </s-button>
+              </s-link>
+              <s-text tone="subdued">Opens current theme editor for {shop}</s-text>
+            </s-stack>
+          </s-stack>
+        </s-box>
+      </s-section>
+
       {/* Feature Switches */}
       <s-section heading="Core Speed Optimizations">
         <s-paragraph>
-          Activate automated acceleration mechanisms designed specifically for Shopify storefronts:
+          Configure which acceleration techniques should run on your live storefront:
         </s-paragraph>
 
         <s-stack direction="block" gap="base">
@@ -145,9 +174,9 @@ export default function SpeedPage() {
               <s-stack direction="inline" gap="base" alignitems="center">
                 <FastForward size={24} color="#008060" />
                 <s-stack direction="block" gap="none">
-                  <s-heading>Instant Page Preloader (Predictive Hover)</s-heading>
+                  <s-heading>Instant Page Preloader (Predictive Hover Prefetch)</s-heading>
                   <s-text tone="subdued">
-                    Pre-fetches product and collection pages when customers hover over links for near 0ms transitions.
+                    Preloads product and collection pages when customers hover over links for near-instant 0ms navigation.
                   </s-text>
                 </s-stack>
               </s-stack>
@@ -165,9 +194,9 @@ export default function SpeedPage() {
               <s-stack direction="inline" gap="base" alignitems="center">
                 <Layers size={24} color="#008060" />
                 <s-stack direction="block" gap="none">
-                  <s-heading>Off-Screen Image Lazy Loading</s-heading>
+                  <s-heading>Automated Off-Screen Image &amp; iFrame Lazy Loading</s-heading>
                   <s-text tone="subdued">
-                    Defers images outside the initial viewport until needed, optimizing Largest Contentful Paint (LCP).
+                    Prevents below-the-fold media from blocking Largest Contentful Paint (LCP) and Cumulative Layout Shift (CLS).
                   </s-text>
                 </s-stack>
               </s-stack>
@@ -185,9 +214,9 @@ export default function SpeedPage() {
               <s-stack direction="inline" gap="base" alignitems="center">
                 <Cpu size={24} color="#b95000" />
                 <s-stack direction="block" gap="none">
-                  <s-heading>Non-Critical Script Deferral (Experimental)</s-heading>
+                  <s-heading>Non-Critical Script Deferral</s-heading>
                   <s-text tone="subdued">
-                    Delays non-critical third-party chat and analytics scripts to reduce Total Blocking Time (TBT).
+                    Defers heavy third-party scripts until browser reaches idle state to minimize Total Blocking Time (TBT).
                   </s-text>
                 </s-stack>
               </s-stack>
@@ -199,36 +228,54 @@ export default function SpeedPage() {
             </s-stack>
           </s-box>
 
-          <s-button
-            onClick={handleSave}
-            {...(isSubmitting ? { loading: true } : {})}
-          >
-            Save Speed Booster Settings
-          </s-button>
+          {/* JSON-LD Schema */}
+          <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
+            <s-stack direction="inline" justifycontent="space-between" alignitems="center">
+              <s-stack direction="inline" gap="base" alignitems="center">
+                <Sparkles size={24} color="#008060" />
+                <s-stack direction="block" gap="none">
+                  <s-heading>Automated JSON-LD Structured Data</s-heading>
+                  <s-text tone="subdued">
+                    Injects schema.org markup directly into the head for Google Rich Snippets, ratings, and pricing.
+                  </s-text>
+                </s-stack>
+              </s-stack>
+
+              <s-checkbox
+                checked={jsonLdSchema}
+                onInput={(e) => setJsonLdSchema(e.target.checked)}
+              />
+            </s-stack>
+          </s-box>
+
+          <s-stack direction="inline" justifycontent="flex-end">
+            <s-button
+              variant="primary"
+              onClick={handleSave}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? "Saving..." : "Save Booster Settings"}
+            </s-button>
+          </s-stack>
         </s-stack>
       </s-section>
 
-      {/* Generated Script Snippet */}
-      <s-section heading="Theme Speed Script Snippet">
-        <s-stack direction="block" gap="base">
-          <s-stack direction="inline" justifycontent="space-between" alignitems="center">
+      {/* Safety & Compliance Card */}
+      <s-section heading="Safety &amp; Shopify App Review Compliance">
+        <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
+          <s-stack direction="block" gap="small-100">
+            <s-heading>Why ZenSpeed is Safe for your Theme</s-heading>
             <s-paragraph>
-              Ultra-lightweight (&lt; 2KB) vanilla acceleration snippet:
+              &bull; <strong>Zero Theme Code Injected:</strong> All optimizations run via Shopify Theme App Extension (`blocks/zenspeed-booster.liquid`).
             </s-paragraph>
-            <s-button onClick={copyScript} variant="tertiary">
-              <Copy size={14} style={{ marginRight: "4px" }} />
-              {copied ? "Copied" : "Copy Script"}
-            </s-button>
+            <s-paragraph>
+              &bull; <strong>Clean Uninstallation:</strong> Disabling the embed or uninstalling the app immediately removes all booster scripts with 0 leftover code.
+            </s-paragraph>
+            <s-paragraph>
+              &bull; <strong>Minimal Script Footprint:</strong> The booster script is under 2KB, executes asynchronously, and has zero external npm dependencies on the storefront.
+            </s-paragraph>
           </s-stack>
-
-          <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
-            <s-text>
-              <pre style={{ margin: 0, fontFamily: "monospace", fontSize: "12px", whiteSpace: "pre-wrap" }}>
-                {boosterScript}
-              </pre>
-            </s-text>
-          </s-box>
-        </s-stack>
+        </s-box>
       </s-section>
     </s-page>
   );

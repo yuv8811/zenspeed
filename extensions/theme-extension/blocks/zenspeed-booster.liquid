@@ -1,0 +1,95 @@
+{% comment %}
+  ZenSpeed Storefront Acceleration & SEO App Embed
+  Target: Head (Injects non-blocking acceleration assets)
+{% endcomment %}
+
+<link rel="preconnect" href="https://cdn.shopify.com" crossorigin>
+<link rel="dns-prefetch" href="https://cdn.shopify.com">
+
+<script>
+  window.ZenSpeedConfig = {
+    preloader: {{ block.settings.enable_preloader | default: true | json }},
+    lazyLoading: {{ block.settings.enable_lazy_loading | default: true | json }},
+    deferScripts: {{ block.settings.enable_script_defer | default: false | json }}
+  };
+</script>
+
+<script src="{{ 'zenspeed-booster.js' | asset_url }}" defer></script>
+
+{% if block.settings.enable_jsonld %}
+  {% if template contains 'product' and product %}
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Product",
+        "name": {{ product.title | json }},
+        "image": [
+          {% for image in product.images limit: 5 %}
+            {{ image | image_url: width: 1200 | prepend: "https:" | json }}{% unless forloop.last %},{% endunless %}
+          {% endfor %}
+        ],
+        "description": {{ product.description | strip_html | truncatewords: 60 | json }},
+        "sku": {{ product.selected_or_first_available_variant.sku | default: product.id | json }},
+        "brand": {
+          "@type": "Brand",
+          "name": {{ product.vendor | default: shop.name | json }}
+        },
+        "offers": {
+          "@type": "Offer",
+          "url": {{ shop.secure_url | append: product.url | json }},
+          "priceCurrency": {{ cart.currency.iso_code | json }},
+          "price": {{ product.selected_or_first_available_variant.price | divided_by: 100.0 | json }},
+          "availability": {% if product.available %}"https://schema.org/InStock"{% else %}"https://schema.org/OutOfStock"{% endif %},
+          "itemCondition": "https://schema.org/NewCondition"
+        }
+      }
+    </script>
+  {% elsif template contains 'index' %}
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": {{ shop.name | json }},
+        "url": {{ shop.secure_url | json }}
+      }
+    </script>
+  {% endif %}
+{% endif %}
+
+{% schema %}
+{
+  "name": "ZenSpeed Booster",
+  "target": "head",
+  "settings": [
+    {
+      "type": "checkbox",
+      "id": "enable_preloader",
+      "label": "Instant Page Preloader (Hover Prefetch)",
+      "default": true,
+      "info": "Preloads product pages when customers hover over links for near-instant navigation."
+    },
+    {
+      "type": "checkbox",
+      "id": "enable_lazy_loading",
+      "label": "Image & iFrame Lazy Loading",
+      "default": true,
+      "info": "Prevents below-the-fold images from blocking initial Largest Contentful Paint (LCP)."
+    },
+    {
+      "type": "checkbox",
+      "id": "enable_script_defer",
+      "label": "Non-Critical Script Deferral",
+      "default": false,
+      "info": "Delays heavy background scripts to reduce Total Blocking Time (TBT)."
+    },
+    {
+      "type": "checkbox",
+      "id": "enable_jsonld",
+      "label": "JSON-LD Structured Data",
+      "default": true,
+      "info": "Generates Google rich snippets for products, pricing, and store ratings."
+    }
+  ]
+}
+{% endschema %}
+

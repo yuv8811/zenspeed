@@ -8,11 +8,20 @@ import {
   AlertCircle,
   Sparkles,
   Search,
+  RotateCcw,
+  ShieldCheck,
 } from "lucide-react";
 import { authenticate } from "../shopify.server";
-import { getStoreSeoOverview, updateProductImageAlts } from "../services/seo.server";
+import {
+  getStoreSeoOverview,
+  updateProductImageAlts,
+  bulkOptimizeStoreImages,
+  revertImageAlt,
+  revertAllImageAlts,
+} from "../services/seo.server";
 import { connectDB } from "../db.server";
 import Settings from "../models/settings.model";
+import ImageBackup from "../models/imageBackup.model";
 import StatBox from "../components/StatBox";
 
 export const loader = async ({ request }) => {
@@ -22,19 +31,30 @@ export const loader = async ({ request }) => {
   const scanLimit = parseInt(url.searchParams.get("limit") || "250", 10);
 
   let settings = null;
+  let recentBackups = [];
+  let totalBackupsCount = 0;
+
   try {
     await connectDB();
     settings = await Settings.findOne({ shop }).lean();
+    recentBackups = await ImageBackup.find({ shop, reverted: false })
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .lean();
+    totalBackupsCount = await ImageBackup.countDocuments({ shop, reverted: false });
   } catch (e) {
-    console.warn("Could not load settings:", e.message);
+    console.warn("Could not load settings or backups:", e.message);
   }
 
   const overview = await getStoreSeoOverview(admin, { maxProducts: scanLimit });
 
   return {
+    shop,
     overview,
     scanLimit,
     template: settings?.altTextTemplate || "{product_title} - {shop_name}",
+    recentBackups: JSON.parse(JSON.stringify(recentBackups)),
+    totalBackupsCount,
   };
 };
 
@@ -67,6 +87,7 @@ export const action = async ({ request }) => {
     try {
       const result = await updateProductImageAlts({
         admin,
+        shop,
         productId,
         productTitle,
         shopName,
@@ -75,8 +96,52 @@ export const action = async ({ request }) => {
 
       return {
         ok: true,
-        message: `Updated alt text for ${result.updated} images!`,
+        message: `Updated & backed up alt text for ${result.updated} images!`,
         result,
+      };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  }
+
+  if (intent === "bulk_optimize_all") {
+    const shopName = formData.get("shopName")?.toString() || "Store";
+    const maxProducts = parseInt(formData.get("maxProducts")?.toString() || "100", 10);
+
+    try {
+      const result = await bulkOptimizeStoreImages({
+        admin,
+        shop,
+        shopName,
+        template: template.toString(),
+        maxProducts,
+      });
+
+      return {
+        ok: true,
+        message: `Bulk optimization completed! Updated ${result.totalOptimized} images with safe backups.`,
+      };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  }
+
+  if (intent === "revert_single") {
+    const backupId = formData.get("backupId")?.toString() || "";
+    try {
+      await revertImageAlt({ admin, shop, backupId });
+      return { ok: true, message: "Restored original image alt text!" };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  }
+
+  if (intent === "revert_all") {
+    try {
+      const result = await revertAllImageAlts({ admin, shop });
+      return {
+        ok: true,
+        message: `Successfully restored ${result.revertedCount} images back to original state!`,
       };
     } catch (e) {
       return { ok: false, error: e.message };
@@ -87,7 +152,13 @@ export const action = async ({ request }) => {
 };
 
 export default function ImageSeoPage() {
-  const { overview, scanLimit, template: initialTemplate } = useLoaderData();
+  const {
+    overview,
+    scanLimit,
+    template: initialTemplate,
+    recentBackups,
+    totalBackupsCount,
+  } = useLoaderData();
   const fetcher = useFetcher();
   const shopify = useAppBridge();
   const [, setSearchParams] = useSearchParams();
@@ -125,6 +196,31 @@ export default function ImageSeoPage() {
     );
   };
 
+  const handleBulkOptimizeAll = () => {
+    fetcher.submit(
+      {
+        intent: "bulk_optimize_all",
+        shopName: overview.shopName,
+        template,
+        maxProducts: scanLimit.toString(),
+      },
+      { method: "POST" },
+    );
+  };
+
+  const handleRevertSingle = (backupId) => {
+    fetcher.submit(
+      { intent: "revert_single", backupId },
+      { method: "POST" },
+    );
+  };
+
+  const handleRevertAll = () => {
+    if (confirm("Are you sure you want to revert all optimized image alt texts back to their original state?")) {
+      fetcher.submit({ intent: "revert_all" }, { method: "POST" });
+    }
+  };
+
   const handleLimitChange = (e) => {
     const newLimit = e.target.value;
     setSearchParams((prev) => {
@@ -138,14 +234,27 @@ export default function ImageSeoPage() {
     : overview.products;
 
   return (
-    <s-page heading="Image Alt-Text Optimizer">
+    <s-page heading="Image Alt-Text Optimizer &amp; Backup">
+      {/* Primary Action Button */}
+      {overview.missingAltCount > 0 && (
+        <s-button
+          slot="primary-action"
+          variant="primary"
+          onClick={handleBulkOptimizeAll}
+          disabled={isSubmitting}
+        >
+          <Sparkles size={14} style={{ marginRight: "4px" }} />
+          {isSubmitting ? "Optimizing Catalog..." : `1-Click Optimize All (${overview.missingAltCount})`}
+        </s-button>
+      )}
+
       {/* Top Overview Cards */}
       <s-section>
         <s-grid gridtemplatecolumns="repeat(auto-fit, minmax(200px, 1fr))" gap="base">
           <StatBox
             label="Total Products in Store"
             value={overview.totalInStore}
-            subtext={`${overview.totalProducts} scanned`}
+            subtext={`${overview.totalProducts} scanned in batch`}
             icon={Search}
             tone="neutral"
           />
@@ -167,17 +276,10 @@ export default function ImageSeoPage() {
             tone={overview.missingAltCount === 0 ? "success" : "warning"}
           />
           <StatBox
-            label="SEO Readiness"
-            value={
-              overview.totalImages > 0
-                ? `${Math.round(
-                    ((overview.totalImages - overview.missingAltCount) /
-                      overview.totalImages) *
-                      100,
-                  )}%`
-                : "100%"
-            }
-            icon={CheckCircle2}
+            label="Safety &amp; Backups"
+            value={`${totalBackupsCount} Backed Up`}
+            subtext="Reversible at any time"
+            icon={ShieldCheck}
             tone="success"
           />
         </s-grid>
@@ -186,7 +288,7 @@ export default function ImageSeoPage() {
       {/* Template Setting Card */}
       <s-section heading="Alt-Text Generation Template">
         <s-paragraph>
-          Google uses image alt text to understand product visuals. Define your automatic alt-text pattern:
+          Google uses image alt text to index visual content. Define your automated alt-text pattern:
         </s-paragraph>
 
         <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
@@ -202,10 +304,11 @@ export default function ImageSeoPage() {
               </s-box>
 
               <s-button
+                variant="primary"
                 onClick={handleSaveTemplate}
-                {...(isSubmitting ? { loading: true } : {})}
+                disabled={isSubmitting}
               >
-                Save Template
+                {isSubmitting ? "Saving..." : "Save Template"}
               </s-button>
             </s-stack>
 
@@ -306,11 +409,12 @@ export default function ImageSeoPage() {
 
                     {hasMissing ? (
                       <s-button
+                        variant="primary"
                         onClick={() => handleOptimizeProduct(product.id, product.title)}
-                        {...(isSubmitting ? { loading: true } : {})}
+                        disabled={isSubmitting}
                       >
                         <Sparkles size={14} style={{ marginRight: "4px" }} />
-                        Optimize ({product.missingAltImages.length}) Images
+                        {isSubmitting ? "Optimizing..." : `Optimize (${product.missingAltImages.length}) Images`}
                       </s-button>
                     ) : (
                       <s-badge tone="success">
@@ -325,6 +429,72 @@ export default function ImageSeoPage() {
           </s-stack>
         )}
       </s-section>
+
+      {/* Backup & One-Click Restore Section (PRD Section 6 MVP) */}
+      {recentBackups && recentBackups.length > 0 && (
+        <s-section heading="Backup &amp; One-Click Restore (Safety Guarantee)">
+          <s-paragraph>
+            ZenSpeed automatically backs up original alt text in MongoDB before applying changes. You can restore any image or all images back to their original state at any time.
+          </s-paragraph>
+
+          <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
+            <s-stack direction="block" gap="base">
+              <s-stack direction="inline" justifycontent="space-between" alignitems="center">
+                <s-stack direction="inline" gap="small-100" alignitems="center">
+                  <ShieldCheck size={20} color="#008060" />
+                  <s-heading>Active Original Backups ({totalBackupsCount})</s-heading>
+                </s-stack>
+
+                <s-button
+                  variant="tertiary"
+                  onClick={handleRevertAll}
+                  disabled={isSubmitting}
+                >
+                  <RotateCcw size={14} style={{ marginRight: "4px" }} />
+                  Restore All Originals
+                </s-button>
+              </s-stack>
+
+              <s-stack direction="block" gap="small-100">
+                {recentBackups.map((backup) => (
+                  <s-box
+                    key={backup._id}
+                    padding="small-100"
+                    borderWidth="base"
+                    borderRadius="base"
+                    background="subdued"
+                  >
+                    <s-stack direction="inline" justifycontent="space-between" alignitems="center">
+                      <s-stack direction="inline" gap="base" alignitems="center">
+                        {backup.imageUrl ? (
+                          <s-thumbnail src={backup.imageUrl} alt={backup.productTitle} size="small" />
+                        ) : (
+                          <ImageIcon size={18} color="#8c9196" />
+                        )}
+                        <s-stack direction="block" gap="none">
+                          <s-heading>{backup.productTitle || "Product Image"}</s-heading>
+                          <s-text tone="subdued">
+                            Original: <em>{backup.originalAlt ? `"${backup.originalAlt}"` : "(empty)"}</em> &rarr; Optimized: <strong>&quot;{backup.optimizedAlt}&quot;</strong>
+                          </s-text>
+                        </s-stack>
+                      </s-stack>
+
+                      <s-button
+                        variant="tertiary"
+                        onClick={() => handleRevertSingle(backup._id)}
+                        disabled={isSubmitting}
+                      >
+                        <RotateCcw size={12} style={{ marginRight: "4px" }} />
+                        Revert
+                      </s-button>
+                    </s-stack>
+                  </s-box>
+                ))}
+              </s-stack>
+            </s-stack>
+          </s-box>
+        </s-section>
+      )}
     </s-page>
   );
 }
