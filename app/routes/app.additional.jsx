@@ -47,38 +47,6 @@ export default function GuidePage() {
           so Google search can display rich product snippets, star ratings, and prices.
         </s-paragraph>
       </s-section>
-
-      <s-section slot="aside" heading="Google Web Vitals Thresholds">
-        <s-unordered-list>
-          <s-list-item>
-            <strong>LCP (Largest Contentful Paint):</strong> Good &le; 2.5s
-          </s-list-item>
-          <s-list-item>
-            <strong>INP (Interaction to Next Paint):</strong> Good &le; 200ms
-          </s-list-item>
-          <s-list-item>
-            <strong>CLS (Cumulative Layout Shift):</strong> Good &le; 0.1
-          </s-list-item>
-          <s-list-item>
-            <strong>FCP (First Contentful Paint):</strong> Good &le; 1.8s
-          </s-list-item>
-        </s-unordered-list>
-      </s-section>
-
-      <s-section slot="aside" heading="Help &amp; Documentation">
-        <s-unordered-list>
-          <s-list-item>
-            <s-link href="https://web.dev/explore/metrics" target="_blank">
-              Google Web Vitals Guide
-            </s-link>
-          </s-list-item>
-          <s-list-item>
-            <s-link href="https://shopify.dev/docs/themes/best-practices/performance" target="_blank">
-              Shopify Theme Performance
-            </s-link>
-          </s-list-item>
-        </s-unordered-list>
-      </s-section>
     </s-page>
   );
 }

@@ -18,6 +18,7 @@ module.exports = {
     browser: true,
     commonjs: true,
     es6: true,
+    node: true,
   },
   ignorePatterns: ["!**/.server", "!**/.client"],
 
@@ -50,6 +51,7 @@ module.exports = {
       },
       rules: {
         "react/no-unknown-property": ["error", { ignore: ["variant"] }],
+        "react/prop-types": "off",
       },
     },
 
@@ -91,6 +93,7 @@ module.exports = {
     },
   ],
   globals: {
-    shopify: "readonly"
+    shopify: "readonly",
+    process: "readonly",
   },
 };

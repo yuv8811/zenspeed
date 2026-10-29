@@ -16,8 +16,11 @@ export default function App() {
   return (
     <AppProvider apiKey={apiKey}>
       <s-app-nav>
-        <s-link href="/app">Speed &amp; SEO Audit</s-link>
-        <s-link href="/app/additional">Tips &amp; Guide</s-link>
+        <s-link href="/app">Audit &amp; Scores</s-link>
+        <s-link href="/app/images">Image Alt SEO</s-link>
+        <s-link href="/app/seo">Meta Tags &amp; Schema</s-link>
+        <s-link href="/app/speed">Speed Booster</s-link>
+        <s-link href="/app/settings">Settings</s-link>
       </s-app-nav>
       <Outlet />
     </AppProvider>

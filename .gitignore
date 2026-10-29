@@ -18,6 +18,9 @@ database.sqlite
 
 shopify.app.test-app.toml
 
+docs/*
+scratch/*
+GEMINI.md
 
 
 /extensions/*/dist
