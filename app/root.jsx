@@ -11,6 +11,16 @@ export default function App() {
           rel="stylesheet"
           href="https://cdn.shopify.com/static/fonts/inter/v4/styles.css"
         />
+        <style>{`
+          @keyframes zenspeed-pulse {
+            0%, 100% {
+              opacity: 0.7;
+            }
+            50% {
+              opacity: 0.25;
+            }
+          }
+        `}</style>
         <Meta />
         <Links />
       </head>

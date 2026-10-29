@@ -9,6 +9,10 @@ const settingsSchema = new mongoose.Schema(
       index: true,
     },
     // Speed Optimization Features
+    boosterEnabled: {
+      type: Boolean,
+      default: true,
+    },
     instantPreloader: {
       type: Boolean,
       default: true,

@@ -34,6 +34,7 @@ export async function runPageSpeedAudit({
   endpoint.searchParams.set("strategy", strategy);
 
   // Add Google API key if configured
+  // eslint-disable-next-line no-undef
   const apiKey = (process.env.PAGESPEED_INSIGHT_KEY || "").trim();
   if (apiKey) {
     endpoint.searchParams.set("key", apiKey);
@@ -79,6 +80,26 @@ export async function runPageSpeedAudit({
 }
 
 /**
+ * Run simultaneous Mobile and Desktop PageSpeed audits in parallel.
+ *
+ * @param {Object} options
+ * @param {string} options.url - The target URL to test.
+ * @param {string[]} [options.categories]
+ * @returns {Promise<{ mobile: Object, desktop: Object }>}
+ */
+export async function runDualPageSpeedAudit({
+  url: targetUrl,
+  categories = ["PERFORMANCE", "SEO", "ACCESSIBILITY", "BEST_PRACTICES"],
+}) {
+  const [mobile, desktop] = await Promise.all([
+    runPageSpeedAudit({ url: targetUrl, strategy: "mobile", categories }),
+    runPageSpeedAudit({ url: targetUrl, strategy: "desktop", categories }),
+  ]);
+
+  return { mobile, desktop };
+}
+
+/**
  * Format raw PageSpeed Insights API response into structured metrics for the dashboard.
  */
 function formatPageSpeedResponse(data, auditedUrl, strategy) {
@@ -100,175 +121,117 @@ function formatPageSpeedResponse(data, auditedUrl, strategy) {
       : null,
   };
 
-  // Lighthouse Core Web Vitals & Speed metrics
+  // Extract key Core Web Vitals from Lighthouse Lab data
   const lighthouseMetrics = [
     {
       id: "fcp",
       title: "First Contentful Paint (FCP)",
       displayValue: audits["first-contentful-paint"]?.displayValue || "N/A",
-      score: audits["first-contentful-paint"]?.score ?? null,
-      description:
-        "FCP marks the time at which the first text or image is painted.",
+      score: audits["first-contentful-paint"]?.score ?? 0,
+      description: "Marks the time at which the first text or image is painted.",
     },
     {
       id: "lcp",
       title: "Largest Contentful Paint (LCP)",
       displayValue: audits["largest-contentful-paint"]?.displayValue || "N/A",
-      score: audits["largest-contentful-paint"]?.score ?? null,
-      description:
-        "LCP marks the time at which the largest text or image is painted.",
-    },
-    {
-      id: "tbt",
-      title: "Total Blocking Time (TBT)",
-      displayValue: audits["total-blocking-time"]?.displayValue || "N/A",
-      score: audits["total-blocking-time"]?.score ?? null,
-      description:
-        "Sum of all time periods between FCP and Time to Interactive when task length exceeded 50ms.",
+      score: audits["largest-contentful-paint"]?.score ?? 0,
+      description: "Marks the time at which the largest text or image is painted.",
     },
     {
       id: "cls",
       title: "Cumulative Layout Shift (CLS)",
       displayValue: audits["cumulative-layout-shift"]?.displayValue || "N/A",
-      score: audits["cumulative-layout-shift"]?.score ?? null,
-      description:
-        "Measures the movement of visible elements within the viewport.",
+      score: audits["cumulative-layout-shift"]?.score ?? 0,
+      description: "Measures movement of visible elements within viewport.",
     },
     {
-      id: "speedIndex",
+      id: "tbt",
+      title: "Total Blocking Time (TBT)",
+      displayValue: audits["total-blocking-time"]?.displayValue || "N/A",
+      score: audits["total-blocking-time"]?.score ?? 0,
+      description: "Sum of all time periods between FCP and Time to Interactive.",
+    },
+    {
+      id: "speed_index",
       title: "Speed Index",
       displayValue: audits["speed-index"]?.displayValue || "N/A",
-      score: audits["speed-index"]?.score ?? null,
-      description:
-        "Speed Index shows how quickly the contents of a page are visibly populated.",
-    },
-    {
-      id: "interactive",
-      title: "Time to Interactive (TTI)",
-      displayValue: audits["interactive"]?.displayValue || "N/A",
-      score: audits["interactive"]?.score ?? null,
-      description:
-        "TTI is the amount of time it takes for the page to become fully interactive.",
+      score: audits["speed-index"]?.score ?? 0,
+      description: "Shows how quickly the contents of a page are visibly populated.",
     },
   ];
 
-  // CrUX Real-User Field Data (Chrome User Experience Report)
+  // Extract Chrome User Experience Report (CrUX) Field Data
   const cruxMetrics = {
-    fcp: {
-      title: "First Contentful Paint",
-      category:
-        cruxExperience.metrics?.FIRST_CONTENTFUL_PAINT_MS?.category ||
-        originExperience.metrics?.FIRST_CONTENTFUL_PAINT_MS?.category ||
-        "DATA_UNAVAILABLE",
-      percentile:
-        cruxExperience.metrics?.FIRST_CONTENTFUL_PAINT_MS?.percentile ||
-        originExperience.metrics?.FIRST_CONTENTFUL_PAINT_MS?.percentile ||
-        null,
-    },
-    lcp: {
-      title: "Largest Contentful Paint",
-      category:
-        cruxExperience.metrics?.LARGEST_CONTENTFUL_PAINT_MS?.category ||
-        originExperience.metrics?.LARGEST_CONTENTFUL_PAINT_MS?.category ||
-        "DATA_UNAVAILABLE",
-      percentile:
-        cruxExperience.metrics?.LARGEST_CONTENTFUL_PAINT_MS?.percentile ||
-        originExperience.metrics?.LARGEST_CONTENTFUL_PAINT_MS?.percentile ||
-        null,
-    },
-    cls: {
-      title: "Cumulative Layout Shift",
-      category:
-        cruxExperience.metrics?.CUMULATIVE_LAYOUT_SHIFT_SCORE?.category ||
-        originExperience.metrics?.CUMULATIVE_LAYOUT_SHIFT_SCORE?.category ||
-        "DATA_UNAVAILABLE",
-      percentile:
-        cruxExperience.metrics?.CUMULATIVE_LAYOUT_SHIFT_SCORE?.percentile !==
-        undefined
-          ? (
-              (cruxExperience.metrics?.CUMULATIVE_LAYOUT_SHIFT_SCORE
-                ?.percentile ||
-                originExperience.metrics?.CUMULATIVE_LAYOUT_SHIFT_SCORE
-                  ?.percentile) / 100
-            ).toFixed(2)
-          : null,
-    },
-    inp: {
-      title: "Interaction to Next Paint",
-      category:
-        cruxExperience.metrics?.INTERACTION_TO_NEXT_PAINT?.category ||
-        originExperience.metrics?.INTERACTION_TO_NEXT_PAINT?.category ||
-        "DATA_UNAVAILABLE",
-      percentile:
-        cruxExperience.metrics?.INTERACTION_TO_NEXT_PAINT?.percentile ||
-        originExperience.metrics?.INTERACTION_TO_NEXT_PAINT?.percentile ||
-        null,
-    },
-    overallCategory:
-      cruxExperience.overall_category ||
-      originExperience.overall_category ||
-      "DATA_UNAVAILABLE",
-    isOriginFallback: !cruxExperience.metrics && !!originExperience.metrics,
+    fcp: extractMetric(cruxExperience, originExperience, "FIRST_CONTENTFUL_PAINT_MS"),
+    lcp: extractMetric(cruxExperience, originExperience, "LARGEST_CONTENTFUL_PAINT_MS"),
+    cls: extractMetric(cruxExperience, originExperience, "CUMULATIVE_LAYOUT_SHIFT_SCORE", true),
+    inp: extractMetric(cruxExperience, originExperience, "INTERACTION_TO_NEXT_PAINT"),
+    overallCategory: cruxExperience.overall_category || originExperience.overall_category || "NO_DATA",
+    isOriginFallback: !cruxExperience.metrics && Boolean(originExperience.metrics),
   };
 
-  // Extract Speed Opportunities (audits with potential byte/time savings)
-  const speedOpportunities = Object.keys(audits)
-    .filter((key) => {
-      const audit = audits[key];
-      return (
-        audit &&
-        audit.details &&
-        audit.details.type === "opportunity" &&
-        audit.score !== null &&
-        audit.score < 0.9
-      );
-    })
-    .map((key) => {
-      const audit = audits[key];
-      return {
-        id: key,
-        title: audit.title,
-        displayValue: audit.displayValue || "",
-        score: audit.score,
-        description: audit.description,
-        savingsMs: audit.details?.overallSavingsMs,
-        savingsBytes: audit.details?.overallSavingsBytes,
-      };
-    })
-    .sort((a, b) => (b.savingsMs || 0) - (a.savingsMs || 0));
+  // Extract actionable optimization opportunities
+  const speedOpportunities = [];
+  const opportunityAuditKeys = [
+    "render-blocking-resources",
+    "modern-image-formats",
+    "offscreen-images",
+    "unminified-css",
+    "unminified-javascript",
+    "unused-css-rules",
+    "unused-javascript",
+    "uses-optimized-images",
+    "uses-text-compression",
+    "uses-responsive-images",
+    "efficient-animated-content",
+    "duplicated-javascript",
+  ];
 
-  // Extract SEO Audits / Checklist
+  opportunityAuditKeys.forEach((key) => {
+    const item = audits[key];
+    if (item && item.score !== null && item.score < 0.9) {
+      speedOpportunities.push({
+        id: item.id,
+        title: item.title,
+        displayValue: item.displayValue || "",
+        score: item.score,
+        savingsMs: item.details?.overallSavingsMs || 0,
+        savingsBytes: item.details?.overallSavingsBytes || 0,
+      });
+    }
+  });
+
+  // Extract SEO audits
+  const seoAudits = [];
   const seoAuditKeys = [
     "document-title",
     "meta-description",
+    "http-status-code",
     "link-text",
     "crawlable-anchors",
     "is-crawlable",
     "robots-txt",
     "image-alt",
-    "font-size",
     "canonical",
-    "structured-data",
-    "tap-targets",
-    "http-status-code",
   ];
 
-  const seoAudits = seoAuditKeys
-    .map((key) => audits[key])
-    .filter(Boolean)
-    .map((audit) => ({
-      id: audit.id,
-      title: audit.title,
-      description: audit.description,
-      score: audit.score,
-      displayValue: audit.displayValue || (audit.score === 1 ? "Passed" : "Needs Attention"),
-      passed: audit.score === 1,
-    }));
+  seoAuditKeys.forEach((key) => {
+    const item = audits[key];
+    if (item) {
+      seoAudits.push({
+        id: item.id,
+        title: item.title,
+        passed: item.score === 1,
+        displayValue: item.displayValue || (item.score === 1 ? "Passed" : "Action Required"),
+        description: item.description,
+      });
+    }
+  });
 
   return {
     url: auditedUrl,
     strategy,
-    fetchTime: lighthouse.fetchTime || new Date().toISOString(),
+    testedAt: new Date().toISOString(),
     scores,
     lighthouseMetrics,
     cruxMetrics,
@@ -277,3 +240,21 @@ function formatPageSpeedResponse(data, auditedUrl, strategy) {
   };
 }
 
+/**
+ * Helper to extract CrUX metric data safely
+ */
+function extractMetric(pageExp, originExp, metricKey, isCls = false) {
+  const metric =
+    pageExp?.metrics?.[metricKey] || originExp?.metrics?.[metricKey];
+
+  if (!metric) {
+    return { category: "NO_DATA", percentile: null };
+  }
+
+  return {
+    category: metric.category || "NO_DATA",
+    percentile: isCls
+      ? (metric.percentile / 100).toFixed(2)
+      : Math.round(metric.percentile || 0),
+  };
+}

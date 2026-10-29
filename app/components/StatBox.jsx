@@ -7,7 +7,7 @@ export default function StatBox({ label, value, subtext, icon: Icon, tone = "neu
     info: "info",
   };
 
-  const badgeTone = badgeToneMap[tone] || "neutral";
+  const badgeTone = badgeToneMap[tone] || "";
 
   return (
     <s-box

@@ -3,56 +3,92 @@
   Target: Head (Injects non-blocking acceleration assets)
 {% endcomment %}
 
-<link rel="preconnect" href="https://cdn.shopify.com" crossorigin>
-<link rel="dns-prefetch" href="https://cdn.shopify.com">
+{% assign config = shop.metafields.zenspeed.settings.value %}
+{% assign booster_enabled = true %}
+{% if config and config.boosterEnabled == false %}
+  {% assign booster_enabled = false %}
+{% endif %}
 
-<script>
-  window.ZenSpeedConfig = {
-    preloader: {{ block.settings.enable_preloader | default: true | json }},
-    lazyLoading: {{ block.settings.enable_lazy_loading | default: true | json }},
-    deferScripts: {{ block.settings.enable_script_defer | default: false | json }}
-  };
-</script>
+{% if booster_enabled %}
+  {% assign preloader_enabled = true %}
+  {% if config and config.instantPreloader == false %}
+    {% assign preloader_enabled = false %}
+  {% elsif block.settings.enable_preloader == false %}
+    {% assign preloader_enabled = false %}
+  {% endif %}
 
-<script src="{{ 'zenspeed-booster.js' | asset_url }}" defer></script>
+  {% assign lazy_enabled = true %}
+  {% if config and config.lazyLoadImages == false %}
+    {% assign lazy_enabled = false %}
+  {% elsif block.settings.enable_lazy_loading == false %}
+    {% assign lazy_enabled = false %}
+  {% endif %}
 
-{% if block.settings.enable_jsonld %}
-  {% if template contains 'product' and product %}
-    <script type="application/ld+json">
-      {
-        "@context": "https://schema.org",
-        "@type": "Product",
-        "name": {{ product.title | json }},
-        "image": [
-          {% for image in product.images limit: 5 %}
-            {{ image | image_url: width: 1200 | prepend: "https:" | json }}{% unless forloop.last %},{% endunless %}
-          {% endfor %}
-        ],
-        "description": {{ product.description | strip_html | truncatewords: 60 | json }},
-        "sku": {{ product.selected_or_first_available_variant.sku | default: product.id | json }},
-        "brand": {
-          "@type": "Brand",
-          "name": {{ product.vendor | default: shop.name | json }}
-        },
-        "offers": {
-          "@type": "Offer",
-          "url": {{ shop.secure_url | append: product.url | json }},
-          "priceCurrency": {{ cart.currency.iso_code | json }},
-          "price": {{ product.selected_or_first_available_variant.price | divided_by: 100.0 | json }},
-          "availability": {% if product.available %}"https://schema.org/InStock"{% else %}"https://schema.org/OutOfStock"{% endif %},
-          "itemCondition": "https://schema.org/NewCondition"
+  {% assign defer_enabled = false %}
+  {% if config and config.deferScripts == true %}
+    {% assign defer_enabled = true %}
+  {% elsif block.settings.enable_script_defer == true %}
+    {% assign defer_enabled = true %}
+  {% endif %}
+
+  {% assign jsonld_enabled = true %}
+  {% if config and config.jsonLd == false %}
+    {% assign jsonld_enabled = false %}
+  {% elsif block.settings.enable_jsonld == false %}
+    {% assign jsonld_enabled = false %}
+  {% endif %}
+
+  <link rel="preconnect" href="https://cdn.shopify.com" crossorigin>
+  <link rel="dns-prefetch" href="https://cdn.shopify.com">
+
+  <script>
+    window.ZenSpeedConfig = {
+      preloader: {{ preloader_enabled | json }},
+      lazyLoading: {{ lazy_enabled | json }},
+      deferScripts: {{ defer_enabled | json }}
+    };
+  </script>
+
+  <script src="{{ 'zenspeed-booster.js' | asset_url }}" defer></script>
+
+  {% if jsonld_enabled %}
+    {% if template contains 'product' and product %}
+      <script type="application/ld+json">
+        {
+          "@context": "https://schema.org",
+          "@type": "Product",
+          "name": {{ product.title | json }},
+          "image": [
+            {% for image in product.images limit: 5 %}
+              {{ image | image_url: width: 1200 | prepend: "https:" | json }}{% unless forloop.last %},{% endunless %}
+            {% endfor %}
+          ],
+          "description": {{ product.description | strip_html | truncatewords: 60 | json }},
+          "sku": {{ product.selected_or_first_available_variant.sku | default: product.id | json }},
+          "brand": {
+            "@type": "Brand",
+            "name": {{ product.vendor | default: shop.name | json }}
+          },
+          "offers": {
+            "@type": "Offer",
+            "url": {{ shop.secure_url | append: product.url | json }},
+            "priceCurrency": {{ cart.currency.iso_code | json }},
+            "price": {{ product.selected_or_first_available_variant.price | divided_by: 100.0 | json }},
+            "availability": {% if product.available %}"https://schema.org/InStock"{% else %}"https://schema.org/OutOfStock"{% endif %},
+            "itemCondition": "https://schema.org/NewCondition"
+          }
         }
-      }
-    </script>
-  {% elsif template contains 'index' %}
-    <script type="application/ld+json">
-      {
-        "@context": "https://schema.org",
-        "@type": "Organization",
-        "name": {{ shop.name | json }},
-        "url": {{ shop.secure_url | json }}
-      }
-    </script>
+      </script>
+    {% elsif template contains 'index' %}
+      <script type="application/ld+json">
+        {
+          "@context": "https://schema.org",
+          "@type": "Organization",
+          "name": {{ shop.name | json }},
+          "url": {{ shop.secure_url | json }}
+        }
+      </script>
+    {% endif %}
   {% endif %}
 {% endif %}
 
@@ -92,4 +128,3 @@
   ]
 }
 {% endschema %}
-

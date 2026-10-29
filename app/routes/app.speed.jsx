@@ -260,23 +260,6 @@ export default function SpeedPage() {
         </s-stack>
       </s-section>
 
-      {/* Safety & Compliance Card */}
-      <s-section heading="Safety &amp; Shopify App Review Compliance">
-        <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
-          <s-stack direction="block" gap="small-100">
-            <s-heading>Why ZenSpeed is Safe for your Theme</s-heading>
-            <s-paragraph>
-              &bull; <strong>Zero Theme Code Injected:</strong> All optimizations run via Shopify Theme App Extension (`blocks/zenspeed-booster.liquid`).
-            </s-paragraph>
-            <s-paragraph>
-              &bull; <strong>Clean Uninstallation:</strong> Disabling the embed or uninstalling the app immediately removes all booster scripts with 0 leftover code.
-            </s-paragraph>
-            <s-paragraph>
-              &bull; <strong>Minimal Script Footprint:</strong> The booster script is under 2KB, executes asynchronously, and has zero external npm dependencies on the storefront.
-            </s-paragraph>
-          </s-stack>
-        </s-box>
-      </s-section>
     </s-page>
   );
 }
